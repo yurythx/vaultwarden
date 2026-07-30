@@ -1,0 +1,14 @@
+# Segredos - nunca versionar
+.env
+*.env
+!.env.example
+
+# Backups gerados localmente
+backups/
+*.tar.gz
+*.sql
+*.dump
+
+# Sistema
+.DS_Store
+Thumbs.db

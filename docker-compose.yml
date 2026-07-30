@@ -1,0 +1,82 @@
+services:
+  vaultwarden-db:
+    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    container_name: vaultwarden-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vaultwarden}
+      POSTGRES_USER: ${POSTGRES_USER:-vw_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no arquivo .env}
+    volumes:
+      - vw_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vw_user} -d ${POSTGRES_DB:-vaultwarden}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - vw-internal
+
+  vaultwarden:
+    image: vaultwarden/server:${VAULTWARDEN_VERSION:-latest}
+    container_name: vaultwarden
+    restart: unless-stopped
+    depends_on:
+      vaultwarden-db:
+        condition: service_healthy
+    ports:
+      - "192.168.0.225:8081:80"     # HTTP consumido pelo proxy reverso (192.168.0.218)
+      - "192.168.0.225:3012:3012"   # WebSocket para sincronização em tempo real
+    env_file:
+      - .env
+    environment:
+      # Monta a connection string a partir das credenciais definidas no .env
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-vw_user}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no arquivo .env}@vaultwarden-db:5432/${POSTGRES_DB:-vaultwarden}
+      - WEBSOCKET_ENABLED=true
+      - WEBSOCKET_ADDRESS=0.0.0.0
+      - WEBSOCKET_PORT=3012
+      # Confiança no proxy reverso (necessário para IPs corretos nos logs/rate limit)
+      - IP_HEADER=X-Forwarded-For
+    volumes:
+      - vw_app_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 512M
+    networks:
+      - vw-internal
+
+volumes:
+  vw_db_data:
+  vw_app_data:
+
+networks:
+  vw-internal:
+    driver: bridge
